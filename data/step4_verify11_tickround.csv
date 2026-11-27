@@ -1,0 +1,39 @@
+section,item,detail,measured,claimed,verdict
+tests,test_hbt.py,40a1b05 copy + ZIP overlay,38 OK (14.490s),101/101 total,PASS
+tests,test_tickround.py,40a1b05 copy + ZIP overlay,14 OK (0.864s),101/101 total,PASS
+tests,test_hbt_fix2.py,40a1b05 copy + ZIP overlay,42 OK (9.045s),101/101 total,PASS
+tests,test_kiwoom_probe.py,40a1b05 copy + ZIP overlay,7 OK (0.001s),101/101 total,PASS
+tests,test_tickround.py on 40a1b05,old-code cross-check,ImportError: cannot import name 'round_tick' from 'hbt_engine',must fail,PASS
+test_change,test_graduation_sells_all,only diff line 156 tick_mode=none pin,limits under primary default [104 104 104] vs 104.03,104.03 -> 104,PASS
+repro,ETF primary slip 0,liq_ret / buys / sells / tower / off-tick,+4.83% / 209 / 198 / 1 / 0,+4.83% 209/198 tower 1,PASS
+repro,ETF primary slip 0.0025%,liq_ret / buys / sells / tower / off-tick,-3.26% / 160 / 150 / 0 / 0,-3.26% 160/150 tower 0,PASS
+repro,ETF nearest slip 0,liq_ret / buys / sells / tower / off-tick,+0.90% / 209 / 203 / 0 / 0,+0.90% 209/203 tower 0,PASS
+repro,ETF nearest slip 0.0025%,liq_ret / buys / sells / tower / off-tick,+0.86% / 208 / 202 / 0 / 0,+0.86% 208/202 tower 0,PASS
+repro,stock primary slip 0,liq_ret / buys / sells / tower / off-tick,-0.32% / 189 / 183 / 0 / 0,-0.32% 189/183 tower 0,PASS
+repro,stock primary slip 0.0025%,liq_ret / buys / sells / tower / off-tick,-1.30% / 180 / 174 / 0 / 0,-1.30% 180/174 tower 0,PASS
+repro,stock nearest slip 0,liq_ret / buys / sells / tower / off-tick,+4.68% / 201 / 190 / 1 / 0,+4.68% 201/190 tower 1,PASS
+repro,stock nearest slip 0.0025%,liq_ret / buys / sells / tower / off-tick,+4.68% / 201 / 190 / 1 / 0,+4.68% 201/190 tower 1,PASS
+none_equiv,36 runs (12 minute + 24 synthetic daily),sha256 baseline vs patched-none,a223d7aaeeda488d1435079145d882eb98563264db66293dd90e0ca321d080cb vs identical,hash equality (Claude 60648ec4... differs: different serialization; equality property reproduces),PASS
+none_equiv,differing runs,0 of 36,0,0,PASS
+trailing,Claude primary slip 0,liq_ret / buys / sells / tower,-3.7923% / 163 / 152 / 0,-3.79% 163/152/0,REPRODUCED
+trailing,Reference primary slip 0,liq_ret / buys / sells / tower,-3.7781% / 156 / 146 / 0,-3.78% 156/146/0,REPRODUCED
+trailing,Claude primary slip 0.0025%,liq_ret / buys / sells / tower,-3.3734% / 166 / 156 / 0,-3.37% 166/156/0,REPRODUCED
+trailing,Reference primary slip 0.0025%,liq_ret / buys / sells / tower,+6.4257% / 145 / 140 / 0,+6.43% 145/140/0,REPRODUCED
+trailing,Claude nearest slip 0,liq_ret / buys / sells / tower,-5.3444% / 135 / 124 / 0,-5.34% 135/124/0,REPRODUCED
+trailing,Reference nearest slip 0,liq_ret / buys / sells / tower,-5.2637% / 134 / 123 / 0,-5.26% 134/123/0,REPRODUCED
+trailing,Claude nearest slip 0.0025%,liq_ret / buys / sells / tower,-5.3822% / 135 / 124 / 0,-5.38% 135/124/0,REPRODUCED
+trailing,Reference nearest slip 0.0025%,liq_ret / buys / sells / tower,-5.3085% / 134 / 123 / 0,-5.31% 134/123/0,REPRODUCED
+trailing,first diverging trade (all 4 pairs),trade idx 3 2025-11-04 F1 128 shares,Claude 548min vs Reference 545min (primary) / 562min (nearest); same exec price 15775/15780 (primary),judgment-rounding effect confirmed by minute trace,PINNED
+trailing,divergence mechanism,lock value,Claude lock 15780 (rounded) vs Reference lock 15784.46 (unrounded); down level Claude 15779.999 vs Reference 15780; Claude STOP becomes resting order filled 3 min later,see SUMMARY.md §6,CONFIRMED
+bh,buy_and_hold baseline 40a1b05,final / liq_cost / ret (cash 60000000),42000036.20 / 6300.05 / -29.999940%,-,MEASURED
+bh,buy_and_hold patched primary,final / liq_cost / ret,41989203.82 / 6298.42 / -30.017994%,-10832.38 vs baseline (-0.018pp),MEASURED
+bh,buy_and_hold patched nearest,final / liq_cost / ret,42003907.78 / 6300.05 / -29.993487%,+3871.58 vs baseline (+0.006pp),MEASURED
+bh,buy_and_hold patched none,final / liq_cost / ret,42000036.20 / 6300.05 / -29.999940%,identical to baseline,MEASURED
+bh,mechanism,first open 15496 -> primary buy px 15500 qty 3870 (vs 3871 baseline); nearest buy px 15495 qty 3871; last close 10850 (5-KRW multiple),see SUMMARY.md §7a,CONFIRMED
+scope,nearest ties,code: math.floor(x + 0.5 + 1e-9) * t,ties round up (15497.5 -> 15500); measured 15496 -> 15495,ties round up,CONFIRMED
+scope,fits_one_share without sym,code: rounds only if sym is not None,no rounding without sym,CONFIRMED
+scope,stock tick table date transition,code: TICK_TABLES has no date logic; comment says no date transition,applies to 2022 daily bars too,CONFIRMED
+compliance,buy-signal drop levels,code: evaluate() line 479 and events() line 529 unrounded,drop targets NOT rounded,CONFIRMED
+compliance,variant C sessions,code: no session changes; hbt_minute.py identical to 40a1b05,variant C untouched,CONFIRMED
+zip,VERIFY.md first line,# 방: 하이브리드 백테스트 (hybrid-backtest),room name at top,PASS
+zip,files,7 files repo-relative; changed vs 40a1b05: README/hbt_engine/hbt_rules/run_backtest/test_hbt; new: repro_tickround/test_tickround,no network/order/secret code (grep empty),PASS

@@ -99,8 +99,9 @@ def tag_on_buy(old_boxes, new):
 class Trail:
     """1층 트레일링 슬롯: 점화 → 보존선(단계 상향) → 보존선 이탈 또는 하드캡에서 매도 신호"""
 
-    def __init__(self, ignite, steps, cap):
+    def __init__(self, ignite, steps, cap, rnd=None):
         self.ignite, self.steps, self.cap = ignite, steps, cap
+        self.rnd = rnd                      # 트리거·지정가 호가 반올림 함수 (None = 반올림 없음)
         self.key = None
         self.reset()
 
@@ -114,12 +115,15 @@ class Trail:
             self.reset()
 
     def price(self, pct):
-        return self.ref * (1 + pct / 100)
+        x = self.ref * (1 + pct / 100)
+        return x if self.rnd is None else self.rnd(x)
 
     def _ratchet(self):
         gain = (self.peak / self.ref - 1) * 100
         for trig, lock in self.steps:
-            if gain >= trig - 1e-9:
+            # 반올림할 때는 발동 판정도 반올림한 트리거 가격으로 해야 events() 의 가격과 맞음
+            hit = gain >= trig - 1e-9 if self.rnd is None else self.peak >= self.price(trig) - 1e-9
+            if hit:
                 self.lock = max(self.lock, self.price(lock))
 
     def step(self, p):
@@ -155,7 +159,8 @@ class Trail:
         if code == "CAP" and p >= self.price(self.cap) - 1e-9:
             return self.price(self.cap)
         if p >= lock - 1e-9:
-            return max(lock, p * 0.998)
+            limit = p * 0.998 if self.rnd is None else self.rnd(p * 0.998)
+            return max(lock, limit)
         return lock           # 이미 보존선 아래: 보존선 지정가라 가격이 돌아와야 체결
 
     def levels(self):

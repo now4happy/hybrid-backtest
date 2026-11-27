@@ -11,6 +11,33 @@ from hbt_rules import Box, Trail, tag_on_buy, tiers
 
 STOCK_SELL_TAX = {2022: .0023, 2023: .0020, 2024: .0018, 2025: .0015, 2026: .0020}
 
+# 호가 단위 표: (이 가격 미만, 호가 단위). 마지막 칸은 그 이상 전부.
+# stock = 2023-01-25 이후 거래소 주식 표. 날짜별 전환은 하지 않아 그 전 날짜에도 같은 표를 씀.
+TICK_TABLES = {
+    "etf": ((2_000, 1), (math.inf, 5)),
+    "stock": ((2_000, 1), (5_000, 5), (20_000, 10), (50_000, 50), (200_000, 100), (500_000, 500), (math.inf, 1_000)),
+}
+TICK_KIND = {"stock": "stock", "etf_equity": "etf", "etf_other": "etf"}      # Symbol.kind → 표 (ETN 은 etf_* 로 지정)
+
+
+def tick_size(price, kind):
+    return next(t for hi, t in TICK_TABLES[TICK_KIND[kind]] if price < hi)
+
+
+def round_tick(price, side, mode, kind):
+    """계산된 주문·체결가와 트리거만 반올림 (봉 가격·눌림 목표에는 쓰지 않음). side: buy | sell
+    none: 그대로. primary: 매수 올림·매도 내림. nearest: 가장 가까운 값 (정확히 가운데면 올림)
+    1e-9 는 부동소수 오차 때문에 호가 위의 값이 한 칸 밀리지 않게 하는 여유"""
+    if mode == "none":
+        return price
+    t = tick_size(price, kind)
+    x = price / t
+    if mode == "nearest":
+        return math.floor(x + 0.5 + 1e-9) * t
+    if side == "buy":
+        return math.ceil(x - 1e-9) * t
+    return math.floor(x + 1e-9) * t
+
 
 @dataclass(frozen=True)
 class Params:
@@ -43,6 +70,7 @@ class Params:
     buy_fee: float = 0.00015
     sell_fee: float = 0.00015
     slippage: float = 0.0
+    tick_mode: str = "primary"                # none(반올림 없음) | primary(매수 올림·매도 내림) | nearest
     sell_tax_override: float = -1.0
     halts: tuple = ()                         # ((시작, 끝, stop_buy|stop_all), ...) 사용자가 판단해 넣는 중지 기간
 
@@ -53,6 +81,7 @@ class Params:
         if self.after_shares not in ("stop", "add"): bad.append("after_shares=stop|add")
         if self.sell_rule not in ("code", "fixed"): bad.append("sell_rule=code|fixed")
         if self.remain not in ("sniper", "hold"): bad.append("remain=sniper|hold")
+        if self.tick_mode not in ("none", "primary", "nearest"): bad.append("tick_mode=none|primary|nearest")
         if self.path not in ("auto", "low_first", "high_first"): bad.append("path")
         if self.tower_order not in ("id_desc", "avg_desc"): bad.append("tower_order=id_desc|avg_desc")
         if not 0 <= self.protect_ratio < 1: bad.append("protect_ratio 는 0 이상 1 미만")
@@ -144,7 +173,8 @@ class Sim:
         self.fs = []
         self.next_f, self.next_box = 1, 1
         self.anchor, self.peak_layers = 0.0, 0
-        self.trail = Trail(p.trail_ignite, p.trail_steps, p.trail_cap)
+        self.trail = Trail(p.trail_ignite, p.trail_steps, p.trail_cap,
+                           None if p.tick_mode == "none" else self.sell_tick)
         self.resting = []                      # 당일 지정가 매도: (limit, f, box)
         self.log = [] if log else None
         self.st = dict(buys=0, sells=0, tower_sells=0, f_created=0, unaffordable=0, no_cash=0, shares_blocked=0,
@@ -154,6 +184,12 @@ class Sim:
         self.blocked = set()
         self.flow, self.traded = 0.0, False
         self.failed = {}                       # 신호(날짜, 분, 발동 조건) → 처음 실패가 고갈이었나
+
+    def buy_tick(self, price):
+        return round_tick(price, "buy", self.p.tick_mode, self.sym.kind)
+
+    def sell_tick(self, price):
+        return round_tick(price, "sell", self.p.tick_mode, self.sym.kind)
 
     def next_box_id(self):
         """원본 tower_strategy.next_box_id: 발급기 값과 (모든 F의 버킷 ID 최댓값 + 1) 중 큰 값"""
@@ -206,7 +242,7 @@ class Sim:
 
     # ---- 체결
     def _sell(self, f, qty, price, cost_part, kind):
-        px = price * (1 - self.p.slippage)
+        px = self.sell_tick(price * (1 - self.p.slippage))
         gross = qty * px
         net = gross * (1 - self.p.sell_fee - sell_tax(self.sym, self.day, self.p))
         if self.sym.kind == "etf_other":
@@ -316,7 +352,7 @@ class Sim:
             causes.append("shares_blocked")
         remaining = target - (0.0 if new else f.cost)
         amount = min(target * p.portion_pct / 100, remaining)
-        px = price * (1 + p.slippage)
+        px = self.buy_tick(price * (1 + p.slippage))
         want = int(amount // px) if px > 0 else 0
         if want < 1:
             causes.append("unaffordable")
@@ -371,8 +407,8 @@ class Sim:
         """→ [(f, box, 지정가)]"""
         pairs = self.sniper_boxes()
         if self.p.sell_rule == "fixed":
-            return [(f, b, b.avg * (1 + self.p.fixed_tp / 100)) for f, b in pairs
-                    if px >= b.avg * (1 + self.p.fixed_tp / 100) - 1e-9]
+            trig = [(f, b, self.sell_tick(b.avg * (1 + self.p.fixed_tp / 100))) for f, b in pairs]
+            return [s for s in trig if px >= s[2] - 1e-9]
         self.sync_trail()
         if not pairs:
             return []
@@ -386,14 +422,14 @@ class Sim:
             floor = self.trail.fire(px)
         if grad:
             wma = sum(g.cost for g in grad) / sum(g.qty for g in grad)
-            target = wma * (1 + self.p.upper_tp / 100)
+            target = self.sell_tick(wma * (1 + self.p.upper_tp / 100))
             if px >= target - 1e-9:
                 return [(f, b, target) for f, b in pairs]
         out = []
         if floor is not None:
             out += [(owner[id(b)], b, floor) for b in gs[0].boxes]
         if l2 >= 0:
-            raw = gs[l2].price * (1 + self.p.upper_tp / 100)
+            raw = self.sell_tick(gs[l2].price * (1 + self.p.upper_tp / 100))
             if (floor is not None and (raw <= floor + 1e-9 or px >= raw - 1e-9)) or \
                     (not has_l1 and self.p.l2_solo and px >= raw - 1e-9):
                 out += [(owner[id(b)], b, raw) for b in gs[l2].boxes]
@@ -422,7 +458,7 @@ class Sim:
                     self.st["rest_orders"] += 1
             if self.tower_n < self.p.tower_per_day:
                 hit = [f for f in self.fs if f.done and not f.locked and f.id not in self.blocked
-                       and px >= f.avg * (1 + self.p.tower_tp / 100) - 1e-9]
+                       and px >= self.sell_tick(f.avg * (1 + self.p.tower_tp / 100)) - 1e-9]
                 if self.p.tower_order == "avg_desc":      # 사용자 결정식. 동점의 -id 는 임시안(확정 규칙 아님)
                     order = sorted(hit, key=lambda f: (-round(f.avg, 4), -f.id))
                     self.mark_tie(order, self.p.tower_per_day - self.tower_n)
@@ -477,16 +513,16 @@ class Sim:
             lv += [o[0] for o in self.resting]
             pairs = self.sniper_boxes()
             if pairs and self.p.sell_rule == "fixed":
-                lv += [x.avg * (1 + self.p.fixed_tp / 100) for _, x in pairs]
+                lv += [self.sell_tick(x.avg * (1 + self.p.fixed_tp / 100)) for _, x in pairs]
             elif pairs:
                 gs, has_l1 = tiers([x for _, x in pairs])
                 start = 1 if has_l1 else 0
                 if len(gs) > start:
-                    lv.append(gs[start].price * (1 + self.p.upper_tp / 100))
+                    lv.append(self.sell_tick(gs[start].price * (1 + self.p.upper_tp / 100)))
                 for rest in (gs[start:], gs[start + 1:]):
                     if rest:
-                        lv.append(sum(g.cost for g in rest) / sum(g.qty for g in rest) * (1 + self.p.upper_tp / 100))
-            lv += [f.avg * (1 + self.p.tower_tp / 100) for f in self.fs if f.done and not f.locked]
+                        lv.append(self.sell_tick(sum(g.cost for g in rest) / sum(g.qty for g in rest) * (1 + self.p.upper_tp / 100)))
+            lv += [self.sell_tick(f.avg * (1 + self.p.tower_tp / 100)) for f in self.fs if f.done and not f.locked]
             return sorted(x for x in lv if a < x <= b)
         if can_buy and self.fs:
             ref = self.buy_ref()
@@ -599,11 +635,13 @@ def simulate(bars, p, sym, log=False, sessions=None):
     last_close = bars[-1][6]
     liq = 0.0
     for f in s.fs:
-        gross = f.qty * last_close * (1 - p.slippage)
+        px = s.sell_tick(last_close * (1 - p.slippage))
+        gross = f.qty * last_close * (1 - p.slippage) if p.tick_mode == "none" else f.qty * px   # none 은 곱셈 순서도 그대로
         cost = gross * (p.sell_fee + sell_tax(sym, bars[-1][1], p))
         if sym.kind == "etf_other":
             cost += max(0.0, gross - f.cost) * 0.154
-        liq += cost + f.qty * last_close * p.slippage
+        # 종가 평가액과 청산 체결가의 차이(슬리피지 + 호가 반올림). none 은 기존 식을 그대로 씀
+        liq += cost + (f.qty * last_close * p.slippage if p.tick_mode == "none" else f.qty * (last_close - px))
     res = dict(s.st)
     res.update(curve=curve, start_cash=s.start_cash, liquidation_cost=liq,
                final=curve[-1][1] - liq, f_over_1y=len(long_held), f_max_age=max_age,
@@ -648,7 +686,7 @@ def metrics(res, days=None, liquidate=False):
 
 def buy_and_hold(bars, p, sym, cash):
     """첫 봉 시가에 전액 매수 → simulate 결과와 같은 모양"""
-    px = bars[0][3] * (1 + p.slippage)
+    px = round_tick(bars[0][3] * (1 + p.slippage), "buy", p.tick_mode, sym.kind)
     qty = int(cash // (px * (1 + p.buy_fee)))
     left = cash - qty * px * (1 + p.buy_fee)
     curve = []
@@ -656,18 +694,27 @@ def buy_and_hold(bars, p, sym, cash):
         if i + 1 == len(bars) or bars[i + 1][1] != b[1]:
             curve.append((b[1], left + qty * b[6], 0.0, qty * b[6], i == 0 or not curve))
     gross = qty * bars[-1][6]
-    liq = gross * (p.sell_fee + sell_tax(sym, bars[-1][1], p) + p.slippage)
+    if p.tick_mode == "none":
+        liq = gross * (p.sell_fee + sell_tax(sym, bars[-1][1], p) + p.slippage)
+        proceeds = gross * (1 - p.slippage)
+    else:
+        proceeds = qty * round_tick(bars[-1][6] * (1 - p.slippage), "sell", p.tick_mode, sym.kind)
+        liq = proceeds * (p.sell_fee + sell_tax(sym, bars[-1][1], p)) + (gross - proceeds)
     if sym.kind == "etf_other":
-        liq += max(0.0, gross * (1 - p.slippage) - qty * px) * 0.154
+        liq += max(0.0, proceeds - qty * px) * 0.154
     return dict(curve=curve, start_cash=cash, liquidation_cost=liq, final=curve[-1][1] - liq)
 
 
-def fits_one_share(p, first_price):
-    """시험 시작 시점(첫 봉 시가)에 1회 매수액으로 1주를 살 수 있나"""
-    return p.share_amount * p.portion_pct / 100 >= first_price * (1 + p.slippage)
+def fits_one_share(p, first_price, sym=None):
+    """시험 시작 시점(첫 봉 시가)에 1회 매수액으로 1주를 살 수 있나.
+    sym 을 주면 매수 체결가(호가 반올림 포함)로 판정. 실행 코드는 항상 sym 을 줌"""
+    px = first_price * (1 + p.slippage)
+    if sym is not None:
+        px = round_tick(px, "buy", p.tick_mode, sym.kind)
+    return p.share_amount * p.portion_pct / 100 >= px
 
 
-def required_share(base, price, min_portion_pct, unit=1_000_000):
-    """1회 매수액으로 1주를 살 수 있는 몫 금액 (기본값 이상, unit 단위 올림)"""
-    need = price * 1.002 / (min_portion_pct / 100)
+def required_share(base, price, min_portion_pct, unit=1_000_000, min_fill=0.0):
+    """1회 매수액으로 1주를 살 수 있는 몫 금액 (기본값 이상, unit 단위 올림). min_fill: 반올림한 매수 체결가의 하한"""
+    need = max(price * 1.002, min_fill) / (min_portion_pct / 100)
     return base if need <= base else math.ceil(need / unit) * unit

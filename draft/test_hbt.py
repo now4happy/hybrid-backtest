@@ -153,7 +153,7 @@ class Sells(unittest.TestCase):
         self.assertEqual(sorted(b.avg for _, b, _ in out), [99.0, 100.0])
 
     def test_graduation_sells_all(self):
-        s, f = self.two(P(), (103.0, 102.0, 100.0))
+        s, f = self.two(P(tick_mode="none"), (103.0, 102.0, 100.0))   # 반올림 전 지정가를 보는 시험
         out = s.sniper_sell_signals(104.1)          # 3층(103) +1% = 104.03
         self.assertEqual(len(out), 3)
         self.assertTrue(all(abs(l - 104.03) < 1e-6 for _, _, l in out))

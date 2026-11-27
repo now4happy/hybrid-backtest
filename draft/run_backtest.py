@@ -10,7 +10,7 @@ from dataclasses import asdict, replace
 from multiprocessing import Pool
 
 import hbt_data, hbt_minute
-from hbt_engine import Params, Symbol, prepare, simulate, metrics, buy_and_hold, required_share, fits_one_share
+from hbt_engine import Params, Symbol, prepare, simulate, metrics, buy_and_hold, required_share, fits_one_share, round_tick
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NO_MINUTE = ("**분봉이 없는 구간은 일봉만으로 판단한다.** 일봉은 하루 안의 가격 순서를 모르고, "
@@ -100,10 +100,12 @@ def sized(cfg, sym, bars, plist):
     first = bars[0][3]
     base = plist[0].share_amount
     low = min(p.portion_pct for p in plist)
-    need = required_share(base, first, low)
+    fill = max((round_tick(first * (1 + p.slippage), "buy", p.tick_mode, sym.kind)
+                for p in plist if p.tick_mode != "none"), default=0.0)
+    need = required_share(base, first, low, min_fill=fill)
     share = need if cfg.get("share_basis") == "first_bar" else base
     out = [replace(p, share_amount=share) for p in plist]
-    bad = sum(not fits_one_share(p, first) for p in out)
+    bad = sum(not fits_one_share(p, first, sym) for p in out)
     note = (f"- {sym.name}: 첫 봉 시가 {first:,.0f}원, 가장 작은 1회 비중 {low:g}% · 자본 방식 {cfg.get('share_basis', 'fixed')} · "
             f"몫 {share:,.0f}원 × {out[0].max_shares}")
     if share != base:
@@ -206,8 +208,15 @@ def variants(base):
     return [replace(base, protect_ratio=r, tower_order=o) for r in ratios for o in TOWER_ORDERS]
 
 
+TICK_NOTE = {
+    "none": "호가 단위는 반영하지 않았다(tick_mode=none).",
+    "primary": "계산된 주문·체결가와 매도 트리거에 호가 단위를 적용했다(tick_mode=primary: 매수 올림·매도 내림). 봉 가격과 눌림 목표는 반올림하지 않는다. 주식은 2023-01-25 이후 표를 전 기간에 쓴다.",
+    "nearest": "계산된 주문·체결가와 매도 트리거를 가장 가까운 호가 단위로 반올림했다(tick_mode=nearest). 봉 가격과 눌림 목표는 반올림하지 않는다. 주식은 2023-01-25 이후 표를 전 기간에 쓴다.",
+}
+
+
 def header(title, p, infos, notes):
-    lines = [f"# {title}", "", NO_MINUTE, "", "CAGR 은 전체·구간 모두 선택된 거래일 수 / 245 로 환산한 근사값이다. 구간 행은 청산 비용 차감 전 평가성과다. 분봉 15:20 이후는 체결 평가에서 뺀다. 호가 단위는 반영하지 않았다.", "", "보호 끔 결과도 원본 봇을 완전히 재현한 것이 아니라 초안 방식이다. 평단 동점의 -id 는 임시안이며 동점이 걸린 설정은 판정 보류다.", "", "설정: `" + json.dumps(asdict(p), ensure_ascii=False) + "`", "",
+    lines = [f"# {title}", "", NO_MINUTE, "", "CAGR 은 전체·구간 모두 선택된 거래일 수 / 245 로 환산한 근사값이다. 구간 행은 청산 비용 차감 전 평가성과다. 분봉 15:20 이후는 체결 평가에서 뺀다. " + TICK_NOTE[p.tick_mode], "", "보호 끔 결과도 원본 봇을 완전히 재현한 것이 아니라 초안 방식이다. 평단 동점의 -id 는 임시안이며 동점이 걸린 설정은 판정 보류다.", "", "설정: `" + json.dumps(asdict(p), ensure_ascii=False) + "`", "",
              "## 시드", *notes, "", "## 데이터"]
     lines.append(table(["종목", "소스", "봉 수", "첫날", "끝날", "sha256"],
                        [[i["ticker"], i["source"], i["n"], i["first"], i["last"], i["sha256"][:12]] for i in infos]))
@@ -224,7 +233,7 @@ def cmd_run(cfg, base, out):
         for p in plist:
             label = track_name(track(p)) + (f" · 보호 비율 {p.protect_ratio:g}" if p.protect_ratio else "")
             body.append(f"### {label}")
-            if not fits_one_share(p, bars[0][3]):
+            if not fits_one_share(p, bars[0][3], sym):
                 body += ["**실행 불가**: 첫 봉 시가 기준 1회 매수액이 1주보다 작음", ""]
                 continue
             res = simulate(bars, p, sym, log=True)
@@ -281,7 +290,7 @@ def _row(res, main_days=None, up_days=None):
 
 def _one(p):
     first = _CTX.get("first_price") or _CTX["bars"][0][3]
-    if not fits_one_share(p, first):
+    if not fits_one_share(p, first, _CTX["sym"]):
         keys = [pre + k for pre in ("", "liq_", "main_", "up_") for k in METRIC_KEYS]
         return dict({k: None for k in keys + ["exposure", "freeze", "final"] + list(COUNT_KEYS)}, feasible=False)
     res = simulate(_CTX["bars"], p, _CTX["sym"], sessions=_CTX.get("sessions"))
@@ -472,7 +481,7 @@ def cmd_compare(cfg, base, out, minute_dir, grid, jobs, daily_source):
         cols = list(sources) + [("합성 일봉·저가 먼저", agg), ("합성 일봉·고가 먼저", agg)]
         for p in vlist:
             body += ["", f"### {track_name(track(p))}"]
-            if not fits_one_share(p, first):
+            if not fits_one_share(p, first, sym):
                 body.append("**실행 불가**: 첫 봉 시가 기준 1회 매수액이 1주보다 작음")
                 continue
             values = []
