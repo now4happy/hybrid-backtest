@@ -299,10 +299,12 @@ def run_many(ctx, plist, jobs):
 
 def score(r, pre):
     """칼마 1순위. CAGR 0 이하는 칼마가 왜곡되므로 플러스 설정 뒤에 CAGR → MDD 순.
-    CAGR 양수인데 칼마가 없으면 None (판정 보류: 순위에 넣지 않음)"""
+    칼마가 없으면 CAGR 부호와 무관하게 None (판정 보류: 순위에 넣지 않음)"""
     cagr, mdd, cal = r[pre + "cagr"], r[pre + "mdd"], r[pre + "calmar"]
+    if cal is None:
+        return None
     if cagr > 0:
-        return None if cal is None else (1, cal, cagr)
+        return (1, cal, cagr)
     return (0, cagr, -mdd)
 
 

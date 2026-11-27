@@ -59,7 +59,23 @@ class Fix02And06Ranking(unittest.TestCase):
 
     def test_score_none_is_not_infinite(self):
         self.assertIsNone(R.score(row(.05, 0.0, None), ""))
-        self.assertIsNotNone(R.score(row(-.05, 0.0, None), ""))
+        self.assertIsNone(R.score(row(-.05, 0.0, None), ""))
+
+    def test_no_calmar_held_for_any_cagr_sign(self):
+        for cagr in (.05, 0.0, -.05):
+            with self.subTest(cagr=cagr):
+                r = row(cagr, 0.0, None)
+                self.assertIsNone(R.score(r, ""))
+                self.assertEqual(R.verdict(r, ""), "판정 보류(칼마 미산출)")
+                self.assertEqual(R.rank([r], "")[0], [])
+
+    def test_negative_AB_order_kept(self):
+        rows = [row(-.10, .50, -.20), row(-.08, .10, -.80)]   # A, B
+        self.assertEqual(R.rank(rows, "")[0], [1, 0])
+
+    def test_positive_calmar_order_kept_and_before_negative(self):
+        rows = [row(-.08, .10, -.80), row(.10, .10, 1.0), row(.10, .05, 2.0), row(0.0, .10, 0.0)]
+        self.assertEqual(R.rank(rows, "")[0], [2, 1, 3, 0])
 
     def test_unaffordable_and_shares_blocked_are_not_depletion(self):
         order, _ = R.rank([row(.1, .1, 1.0, unaffordable=9, shares_blocked=9)], "")
