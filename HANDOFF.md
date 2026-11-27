@@ -154,3 +154,10 @@
 - 풀이님 결정: 노션 연동은 그만한다. CereFin이 노션에 직접 쓰는 건 더 추진하지 않는다.
 - 기존대로 한다. CereFin 채팅 답변을 Muse가 노션에 옮긴다. CereFin은 투자 업무(원본·초안 코드 대조 마무리, 백테스트·최적화)로 돌아간다.
 - 작업 현황: 원본·초안 코드 대조 진행 중, 백테스트·최적화 미실행, 보고서·[VERIFY.md](http://VERIFY.md)·ZIP 미제출.
+
+## 24. CereFin 노션 읽기 활용 (2026-11-27)
+
+- 풀이님 확인: CereFin은 노션을 읽을 수 있다. 읽기 채널로 활용한다.
+- 새 지시·결정은 노션 이 문서에 올린다. CereFin은 공개 링크로 본문을 읽는다. 깃허브 [HANDOFF.md](http://HANDOFF.md) 미러도 그대로 갱신한다 (읽기 안 될 때 대비).
+- 쓰기는 그대로다. CereFin은 노션에 직접 쓰지 않는다. 채팅 답변을 Muse가 노션에 옮긴다.
+- 공개 링크: 인수인계 문서 <mention url="https://app.notion.com/p/4257a20059168155adfaed97c07c7b42">하이브리드 백테스트 — 투자 특화 AI 검증·최적화 (처음부터)</mention> , 작업 페이지 <mention url="https://app.notion.com/p/4257a2005916819baa52f1f960631a0a">하이브리드 백테스트 프로그램 — 클로드 협업</mention> , 협업 <mention url="https://app.notion.com/p/4247a2005916818081c2d9fa816b2f0e">협업</mention>
