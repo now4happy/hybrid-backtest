@@ -1,0 +1,16 @@
+--- /home/hatch/workspace/backtest-hybrid-domestic/step4-sweep/engine/draft/hbt_engine.py	2026-11-27 06:50:46.000000000 +0000
++++ engine_auction_moved/hbt_engine.py	2026-11-27 15:23:31.739451816 +0000
+@@ -558,9 +558,10 @@
+         if day != s.day:
+             s.day_start(day)
+         s.minute = minute
+-        # 15:20(920분)부터는 종가 단일가 구간이라 연속매매 체결 평가에서 뺌. 일봉(minute=None)은 그대로.
+-        # 봉은 지우지 않음: 아래 일일 정산·평가 기록은 이 조건 밖에서 돈다.
+-        if v > 0 and (minute is None or minute < 920):
++        # 단일가 구간은 그날 마감 10분 전부터: 마감 - 10분(평일 920분 = 15:20, 수능일 985분 = 16:25,
++        # 2026-01-02 925분 = 15:25). 일봉(minute=None)은 그대로. 봉은 지우지 않음: 아래 일일 정산·평가
++        # 기록은 이 조건 밖에서 돈다. (verify9 작업본 패치: 원본 초안은 고정 920)
++        if v > 0 and (minute is None or minute < (s.close_min - 10)):
+             low_first = p.path == "low_first" or (p.path == "auto" and c >= o)
+             path = (o, l, h, c) if low_first else (o, h, l, c)
+             flat = h == l
