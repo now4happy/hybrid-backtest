@@ -9,6 +9,7 @@
 - `original/` — 하이브리드 매매 코드 전체: meritz_laoer v1.5.3 (봇 7번 실전 코드). `original/meritz_laoer/orig_sniper/`는 원작자(pipios4006-boop, pipiosToss_bot 공개 저장소) 스나이퍼 코드다. `original/MANIFEST_SHA256.txt`는 원본 해시 목록이다.
 - `draft/` — 클로드 1번 초안 백테스트 프로그램 (10개 파일). 검토 대상이다. 베이스가 아니다.
 - `README.md` — 이 문서 (작업 지시).
+- `HANDOFF.md` — 노션 인수인계 문서 본문 전체의 GitHub 미러. 세라핀은 노션 공개 페이지를 직접 읽지 못해서 본문을 여기에 그대로 둔다. 새 지시가 생기면 이 파일을 갱신한다.
 
 ## 1. 하이브리드 로직
 
