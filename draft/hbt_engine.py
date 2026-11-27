@@ -31,7 +31,9 @@ class Params:
     tower_tp: float = 10.0
     tower_sell: float = 50.0
     tower_per_day: int = 1
-    remain: str = "sniper"                    # sniper(코드) | hold(남은 주식 계속 보유)
+    remain: str = "hold"                      # hold(기준: 남은 주식 잠금·보유) | sniper(비교 실행)
+    tower_order: str = "id_desc"              # id_desc(원본식 ID 내림차순) | avg_desc(사용자 결정식 평단 높은 순)
+    protect_ratio: float = 0.2                # 현금 보호선 = 초기 현금 × 비율. 0 = 끔(부분 매수). 0.2 는 시험용 값
     first_buy_filter: bool = True             # 분봉 전용
     gate_min: int = 10                        # 분봉 전용: 추가매수는 이 구간당 1번 (0 = 끔)
     open_shield_min: int = 7                  # 분봉 전용: 개장 직후 매수 금지 분
@@ -52,6 +54,10 @@ class Params:
         if self.sell_rule not in ("code", "fixed"): bad.append("sell_rule=code|fixed")
         if self.remain not in ("sniper", "hold"): bad.append("remain=sniper|hold")
         if self.path not in ("auto", "low_first", "high_first"): bad.append("path")
+        if self.tower_order not in ("id_desc", "avg_desc"): bad.append("tower_order=id_desc|avg_desc")
+        if not 0 <= self.protect_ratio < 1: bad.append("protect_ratio 는 0 이상 1 미만")
+        if self.protect_ratio > 0 and self.after_shares == "add":
+            bad.append("현금 보호는 초기 현금 고정에서만 시험: after_shares=add 는 protect_ratio=0 과 함께")
         if not 0 < self.tower_sell <= 100 or self.tower_tp <= 0 or self.tower_per_day < 1: bad.append("탑 매도 설정")
         if not (0 < self.trail_ignite < self.trail_cap) or not self.trail_steps: bad.append("트레일링 설정")
         if any(lock >= trig for trig, lock in self.trail_steps): bad.append("보존선은 발동 % 보다 낮아야 함")
@@ -143,8 +149,31 @@ class Sim:
         self.log = [] if log else None
         self.st = dict(buys=0, sells=0, tower_sells=0, f_created=0, unaffordable=0, no_cash=0, shares_blocked=0,
                        limit_blocked=0, rest_orders=0, rest_filled=0, sniper_pnl=0.0, tower_pnl=0.0, added=0.0,
-                       max_layers=0)
+                       max_layers=0, cash_protection=0, depletion=0, late_depletion=0, tower_ties=0)
         self.day = self.minute = None
+        self.blocked = set()
+        self.flow, self.traded = 0.0, False
+        self.failed = {}                       # 신호(날짜, 분, 발동 조건) → 처음 실패가 고갈이었나
+
+    def next_box_id(self):
+        """원본 tower_strategy.next_box_id: 발급기 값과 (모든 F의 버킷 ID 최댓값 + 1) 중 큰 값"""
+        used = max((b.id for f in self.fs for b in f.boxes), default=0)
+        nb = max(self.next_box, used + 1, 1)
+        self.next_box = nb + 1
+        return nb
+
+    def join_boxes(self, first, second):
+        """두 버킷 목록을 이어 붙임. ID 가 겹치면 새로 발급 (원본 _merge)"""
+        seen, out = set(), []
+        for b in list(first) + list(second):
+            if b.id in seen:
+                nb = self.next_box_id()
+                while nb in seen or any(x.id == nb for x in list(first) + list(second)):
+                    nb = self.next_box_id()
+                b.id = nb
+            seen.add(b.id)
+            out.append(b)
+        return out
 
     # ---- 보조
     def layers(self):
@@ -200,9 +229,11 @@ class Sim:
         if f.qty <= 0:
             self.fs.remove(f)
 
+    def tower_qty(self, f):
+        return max(0, min(int(math.floor(f.qty * self.p.tower_sell / 100 + 0.5)), f.qty - 1))
+
     def tower_sell(self, f, price):
-        q = f.qty
-        sq = max(0, min(int(math.floor(q * self.p.tower_sell / 100 + 0.5)), q - 1))
+        sq = self.tower_qty(f)
         if sq < 1:
             return False
         had_other = self.incomplete()
@@ -216,15 +247,14 @@ class Sim:
             f.done, f.locked = False, True
         elif f.target - f.cost > f.target * self.p.fill_tol_pct / 100:
             f.done = False
-            f.boxes = [Box(self.next_box, f.qty, f.cost)]
-            self.next_box += 1
+            f.boxes = [Box(self.next_box_id(), f.qty, f.cost)]
             if had_other is not None and had_other is not f:
                 self.merge_into(had_other, f)
         return True
 
     def merge_into(self, dst, src):
         """탑 매도로 미완성 F가 2개가 되면 원래 미완성 F에 합치고, 목표 초과분은 새 미완성 F로 분리"""
-        boxes = dst.boxes + src.boxes
+        boxes = self.join_boxes(dst.boxes, src.boxes)
         dst.keep_once = True
         dst.indep = dst.indep or src.indep
         dst.qty += src.qty
@@ -243,8 +273,7 @@ class Sim:
             return
         rest = F(self.next_f, dst.target, dst.qty - n, dst.cost - n * avg, indep=True)
         self.next_f += 1
-        rest.boxes = [Box(self.next_box, rest.qty, rest.cost)]
-        self.next_box += 1
+        rest.boxes = [Box(self.next_box_id(), rest.qty, rest.cost)]
         dst.qty, dst.cost = n, n * avg
         self.complete(dst)
         self.fs.append(rest)
@@ -256,30 +285,55 @@ class Sim:
             f.since = self.day
             self.st["f_created"] += 1
 
+    def signal_id(self):
+        """발동 조건 정체성: 첫 매수 | (받을 F, 기준가, 눌림%)"""
+        if not self.fs:
+            return ("first",)
+        f = self.incomplete()
+        return ("new" if f is None else f.id, round(self.buy_ref(), 6), round(self.drop(), 6))
+
+    def record_failure(self, key, causes):
+        """한 신호(확인 창 + 발동 조건)는 처음 실패한 평가에서만 셈. 고갈 = no_cash 또는 cash_protection"""
+        depleted = "no_cash" in causes or "cash_protection" in causes
+        if key not in self.failed:
+            self.failed[key] = depleted
+            for c in causes:
+                self.st[c] += 1
+            self.st["depletion"] += int(depleted)
+        elif depleted and not self.failed[key]:
+            # 같은 창에서 처음 실패는 고갈이 아니었는데 뒤 평가가 고갈 원인: 세지 않고 따로 표시 (순위는 판정 보류)
+            self.failed[key] = True
+            self.st["late_depletion"] += 1
+
     def buy(self, price):
         p = self.p
         f = self.incomplete()
         new = f is None
+        key = (self.day, self.minute, self.signal_id())   # 일봉은 minute=None → 확인 창 = 하루
         target = p.share_amount if new else f.target
-        if new and len(self.fs) >= p.max_shares:
-            if p.after_shares == "stop":
-                self.st["shares_blocked"] += 1
-                return False
+        causes = []                            # 반환하기 전에 원인을 각각 진단
+        if new and len(self.fs) >= p.max_shares and p.after_shares == "stop":
+            causes.append("shares_blocked")
         remaining = target - (0.0 if new else f.cost)
         amount = min(target * p.portion_pct / 100, remaining)
         px = price * (1 + p.slippage)
-        q = int(amount // px) if px > 0 else 0
-        if q < 1:
-            self.st["unaffordable"] += 1
-            return False
-        if new and p.after_shares == "add" and len(self.fs) >= p.max_shares and self.cash < target:
+        want = int(amount // px) if px > 0 else 0
+        if want < 1:
+            causes.append("unaffordable")
+        if want >= 1 and new and p.after_shares == "add" and len(self.fs) >= p.max_shares and self.cash < target:
             add = target - self.cash
             self.cash += add
             self.flow += add
             self.st["added"] += add
-        q = min(q, int(self.cash // (px * (1 + p.buy_fee))))
-        if q < 1:
-            self.st["no_cash"] += 1
+        unit = px * (1 + p.buy_fee)
+        can = max(0, int(self.cash // unit)) if unit > 0 else 0
+        if can < 1:
+            causes.append("no_cash")
+        q = max(0, min(want, can))             # 예정 수량 (0주면 현금 보호는 원인이 아님)
+        if p.protect_ratio > 0 and q >= 1 and self.cash - q * unit < self.start_cash * p.protect_ratio - 1e-6:
+            causes.append("cash_protection")
+        if causes:                             # 전량 중지 (보호 시 부분 매수 안 함)
+            self.record_failure(key, causes)
             return False
         if new:
             f = F(self.next_f, target)
@@ -287,8 +341,7 @@ class Sim:
             self.fs.append(f)
         cost = q * px
         self.cash -= cost * (1 + p.buy_fee)
-        box = Box(self.next_box, q, cost)
-        self.next_box += 1
+        box = Box(self.next_box_id(), q, cost)
         tag_on_buy([b for _, b in self.sniper_boxes()], box)
         f.boxes.append(box)
         f.qty += q
@@ -370,7 +423,12 @@ class Sim:
             if self.tower_n < self.p.tower_per_day:
                 hit = [f for f in self.fs if f.done and not f.locked and f.id not in self.blocked
                        and px >= f.avg * (1 + self.p.tower_tp / 100) - 1e-9]
-                for f in sorted(hit, key=lambda f: -f.id):
+                if self.p.tower_order == "avg_desc":      # 사용자 결정식. 동점의 -id 는 임시안(확정 규칙 아님)
+                    order = sorted(hit, key=lambda f: (-round(f.avg, 4), -f.id))
+                    self.mark_tie(order, self.p.tower_per_day - self.tower_n)
+                else:                                     # 원본식 ID 내림차순
+                    order = sorted(hit, key=lambda f: -f.id)
+                for f in order:
                     if self.tower_n >= self.p.tower_per_day:
                         break
                     if self.tower_sell(f, px):
@@ -400,6 +458,12 @@ class Sim:
             self.last_buy_minute = self.minute
             if self.p.gate_min and adding:                # 첫 매수는 10분 구간을 쓰지 않음 (코드와 같음)
                 self.gate_bucket = (self.minute - self.open_min) // self.p.gate_min
+
+    def mark_tie(self, order, left):
+        """평단 동점 때문에 누구를 팔지가 갈리면 판정 보류용으로 셈 (팔 수량이 0인 F는 제외)"""
+        sellable = [f for f in order if self.tower_qty(f) >= 1]
+        if 0 < left < len(sellable) and round(sellable[left - 1].avg, 4) == round(sellable[left].avg, 4):
+            self.st["tower_ties"] += 1
 
     def events(self, a, b, can_buy):
         """연속 구간 a→b 에서 상태가 바뀔 수 있는 가격들"""
@@ -458,7 +522,7 @@ class Sim:
         """매일 동기화 때의 F 정리: 번호가 뒤인 F의 평단이 앞 F 이상이면 합침. 번호는 평단 높은 순으로 다시 붙임"""
         out = []
         for cur in sorted(self.fs, key=lambda f: f.id):
-            while out and cur.avg >= out[-1].avg - 1e-9 and not (
+            while out and round(cur.avg, 4) >= round(out[-1].avg, 4) - 1e-9 and not (
                     cur.indep or out[-1].indep or cur.keep_once or out[-1].keep_once):
                 top = out.pop()
                 m = F(min(top.id, cur.id), max(top.target, cur.target), top.qty + cur.qty, top.cost + cur.cost)
@@ -468,12 +532,12 @@ class Sim:
                     m.done = True
                     m.since = m.since or self.day
                 elif not m.locked:
-                    m.boxes = (top.boxes or [Box(self.next_box, top.qty, top.cost)])
-                    m.boxes = m.boxes + (cur.boxes or [Box(self.next_box + 1, cur.qty, cur.cost)])
-                    self.next_box += 2
+                    first = top.boxes or [Box(self.next_box_id(), top.qty, top.cost)]
+                    second = cur.boxes or [Box(self.next_box_id(), cur.qty, cur.cost)]
+                    m.boxes = self.join_boxes(first, second)
                 cur = m
             out.append(cur)
-        out.sort(key=lambda f: -f.avg)
+        out.sort(key=lambda f: -round(f.avg, 4))
         for i, f in enumerate(out, 1):
             f.id = i
             f.keep_once = False
@@ -494,7 +558,9 @@ def simulate(bars, p, sym, log=False, sessions=None):
         if day != s.day:
             s.day_start(day)
         s.minute = minute
-        if v > 0:
+        # 15:20(920분)부터는 종가 단일가 구간이라 연속매매 체결 평가에서 뺌. 일봉(minute=None)은 그대로.
+        # 봉은 지우지 않음: 아래 일일 정산·평가 기록은 이 조건 밖에서 돈다.
+        if v > 0 and (minute is None or minute < 920):
             low_first = p.path == "low_first" or (p.path == "auto" and c >= o)
             path = (o, l, h, c) if low_first else (o, h, l, c)
             flat = h == l
@@ -546,8 +612,12 @@ def simulate(bars, p, sym, log=False, sessions=None):
     return res
 
 
-def metrics(res, days=None):
-    """days: 포함할 날짜 집합 (None = 전체). 추가 입금은 수익에서 뺀 일별 수익률을 이어 붙임"""
+def metrics(res, days=None, liquidate=False):
+    """days: 포함할 날짜 집합 (None = 전체). 추가 입금은 수익에서 뺀 일별 수익률을 이어 붙임.
+    기본은 평가성과(청산 비용 차감 전). liquidate=True 는 전체 기간에만: 마지막 보유분의 청산 비용을 뺌.
+    CAGR 은 전체·구간 모두 선택된 거래일 수 / 245"""
+    if liquidate and days is not None:
+        raise ValueError("청산 비용은 구간에 속하지 않음: 전체 기간에만 뺄 수 있음")
     prev = res["start_cash"]
     idx = peak = 1.0
     mdd = 0.0
@@ -555,7 +625,7 @@ def metrics(res, days=None):
     n_all = len(res["curve"])
     for k, (day, eq, flow, stock, traded) in enumerate(res["curve"]):
         base = prev + flow
-        value = eq - (res["liquidation_cost"] if k == n_all - 1 else 0.0)
+        value = eq - (res["liquidation_cost"] if liquidate and k == n_all - 1 else 0.0)
         prev = eq
         started = started or traded
         if days is not None and day not in days:
@@ -570,8 +640,7 @@ def metrics(res, days=None):
         freeze = max(freeze, run)
     if not picked:
         return None
-    years = len(picked) / 245 if days is not None else \
-        max(1, (dt.date.fromisoformat(picked[-1]) - dt.date.fromisoformat(picked[0])).days) / 365.25
+    years = len(picked) / 245
     cagr = idx ** (1 / years) - 1 if idx > 0 and years > 0 else -1.0
     return dict(ret=idx - 1, cagr=cagr, mdd=mdd, calmar=cagr / mdd if mdd > 1e-9 else None,
                 exposure=sum(expo) / len(expo), freeze=freeze, days=len(picked))
@@ -593,7 +662,12 @@ def buy_and_hold(bars, p, sym, cash):
     return dict(curve=curve, start_cash=cash, liquidation_cost=liq, final=curve[-1][1] - liq)
 
 
-def required_share(base, max_price, min_portion_pct, unit=1_000_000):
+def fits_one_share(p, first_price):
+    """시험 시작 시점(첫 봉 시가)에 1회 매수액으로 1주를 살 수 있나"""
+    return p.share_amount * p.portion_pct / 100 >= first_price * (1 + p.slippage)
+
+
+def required_share(base, price, min_portion_pct, unit=1_000_000):
     """1회 매수액으로 1주를 살 수 있는 몫 금액 (기본값 이상, unit 단위 올림)"""
-    need = max_price * 1.002 / (min_portion_pct / 100)
+    need = price * 1.002 / (min_portion_pct / 100)
     return base if need <= base else math.ceil(need / unit) * unit

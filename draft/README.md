@@ -6,9 +6,13 @@
     python run_backtest.py run                          # 일봉 전체 기간, 설정 1개
     python run_backtest.py sweep                        # 일봉 전체 기간, 설정 비교
     python run_backtest.py compare --minute-dir 폴더    # 분봉 구간: 분봉 vs 일봉 근사
-    python -m unittest test_hbt test_kiwoom_probe       # 시험
+    python -m unittest test_hbt test_kiwoom_probe test_hbt_fix2   # 시험
 
-- 설정 덮어쓰기: `--set tower_tp=15 remain=hold`
+- 설정 덮어쓰기: `--set tower_tp=15 protect_ratio=0.2`
+- 잔여 F: 기준 `remain=hold`. 비교는 `--set remain=sniper` 로 따로 실행 (run·compare 결과 폴더가 나뉨)
+- run·compare 는 보호 끔/현금 보호 수정안 × 탑 매도 두 식(`id_desc`, `avg_desc`)을 따로 냄 (`--set tower_order=` 는 여기서 무시)
+- 자본: 기본 `--share-basis fixed` (몫을 늘리지 않고, 첫 봉 시가로 1주가 안 되면 실행 불가). `first_bar` 는 첫 봉 시가 기준으로 공개적으로 늘림
+- 고갈(no_cash·cash_protection) 1회 이상은 순위에서 제외. `after_shares=add` 는 `protect_ratio=0` 과 함께만
 - 설정 비교 범위: config_default.json 의 `sweep`
 - 분봉 파일: kiwoom_minute_probe.py 출력 `{종목코드}_1m.csv`
 - 장 시간이 다른 날: config 의 `minute.sessions` 에 `"YYYY-MM-DD": ["10:00","16:30"]`
@@ -24,7 +28,7 @@
 **분봉이 없는 구간은 일봉만으로 판단한다.**
 
 ## 기준 규칙
-meritz_laoer v1.5.3 코드 본문 기준. 기본 비교 대상: `sell_rule=fixed`(매수 건마다 +N%), `remain=hold`(남은 주식 보유), `l2_solo`(2층 단독 매도).
+meritz_laoer v1.5.3 코드 본문 기준. 기준 `remain=hold`. 비교 대상: `sell_rule=fixed`(매수 건마다 +N%), `remain=sniper`, `l2_solo`(2층 단독 매도), `tower_order`, `protect_ratio`.
 
 ## 코드와 다르거나 가정한 것
 - 미국장 시각을 한국장으로 옮김(가정, 확인 필요): 개장 쉴드 09:00~09:06, 마감 60분 전부터 신규 진입 금지, 10분 게이트는 09:00 기점
@@ -32,6 +36,8 @@ meritz_laoer v1.5.3 코드 본문 기준. 기본 비교 대상: `sell_rule=fixed
 - 봉 안 가격은 시가→저가·고가→종가 순서의 직선 경로로 가정
 - 체결은 가격이 닿으면 전량 체결. 호가 잔량·미체결 60초 취소·호가 단위 미반영
 - F 완성 허용 오차는 목표의 0.6667% ($100/$15,000 비율)
+- 분봉 15:20(920분) 이후 봉은 체결 평가에서 뺌 (고정 시각: 장 시간이 다른 날은 따로 확인 필요)
+- 현금 보호의 전량 중지는 초안의 부분 매수와 다른 새 규칙. 0.2 는 시험용 값
 - 상하한가에 고정된 봉(고가=저가)과 거래량 0 봉은 체결 제한
 - 비주식형 ETF 과세는 과표 대신 매매차익으로 근사, 배당·분배금 미반영
 - 2027년 이후 거래세는 2026년 값

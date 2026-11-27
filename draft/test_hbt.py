@@ -23,7 +23,8 @@ def bar(d, o, h=None, l=None, c=None, v=1000):
 
 
 def P(**kw):
-    return Params(share_amount=1_000_000, **dict(FREE, **kw))
+    # 기존 시험은 보호 끔·sniper 경로를 명시해 유지 (새 기본값은 test_hbt_fix2 에서 시험)
+    return Params(share_amount=1_000_000, **dict(FREE, **dict(dict(protect_ratio=0.0, remain="sniper"), **kw)))
 
 
 def sim(p, log=True):
@@ -225,7 +226,8 @@ class Buys(unittest.TestCase):
             s.buy(10000.0)
         self.assertEqual([f.done for f in s.fs], [True, True])
         self.assertEqual(s.st["f_created"], 2)
-        self.assertEqual(s.st["shares_blocked"], 2)
+        self.assertEqual(s.st["shares_blocked"], 1)     # 같은 날·같은 조건의 재평가 2번은 신호 1개
+        self.assertEqual((s.st["no_cash"], s.st["depletion"]), (1, 1))   # 몫 소진과 현금 부족을 함께 기록
         self.assertAlmostEqual(s.cash, 0.0)
 
     def test_after_shares_add(self):

@@ -63,6 +63,7 @@
   }
  ],
  "auto_up_threshold": 0.15,
+ "share_basis": "fixed",
  "params": {},
  "sweep": {
   "sell_rule": [
@@ -102,6 +103,14 @@
   "portion_pct": [
    8.0,
    10.0
+  ],
+  "tower_order": [
+   "id_desc",
+   "avg_desc"
+  ],
+  "protect_ratio": [
+   0.0,
+   0.2
   ]
  },
  "minute": {
