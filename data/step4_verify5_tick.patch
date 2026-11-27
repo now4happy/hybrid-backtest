@@ -1,0 +1,160 @@
+--- ../step4-sweep/engine/draft/hbt_engine.py	2026-11-27 06:50:46.000000000 +0000
++++ engine_tick/hbt_engine.py	2026-11-27 13:19:47.379553934 +0000
+@@ -11,6 +11,45 @@
+ 
+ STOCK_SELL_TAX = {2022: .0023, 2023: .0020, 2024: .0018, 2025: .0015, 2026: .0020}
+ 
++# ---- 호가 단위(틱) 가정 — working-copy 하네스 전용. 원본 초안(40a1b05)에는 없음.
++# TICK_MODE / TICK_TABLE_KIND는 드라이버가 모듈 속성으로 지정한다.
++# primary: 매수 체결가는 올림(사는 쪽이 다음 틱을 더 냄), 매도 체결가·매도 트리거는 내림(파는 쪽이 다음 틱을 덜 받음).
++# nearest: 양쪽 다 반올림. 매수 신호 문턱(눌림 가격)은 주문 가격이 아니라 신호 조건이라 반올림하지 않는다.
++# 바 가격(OHLC)은 시장 데이터라 건드리지 않는다. 계산된 주문·체결 가격만 반올림한다.
++TICK_MODE = "primary"
++TICK_TABLE_KIND = "etf"
++
++def tick_of(price):
++    if TICK_TABLE_KIND == "etf":
++        # ETF·ETN: 2000원 미만 1원, 2000원 이상 5원 (KRX, 2023-12~)
++        return 1 if price < 2000 else 5
++    if TICK_TABLE_KIND == "stock_old":
++        # 지시문에 적힌 표 = 개편 전 주식 표
++        if price < 1000: return 1
++        if price < 5000: return 5
++        if price < 10000: return 10
++        if price < 50000: return 10
++        if price < 100000: return 50
++        if price < 500000: return 100
++        return 500
++    # 현행 주식 표 (2023-01-25~)
++    if price < 2000: return 1
++    if price < 5000: return 5
++    if price < 20000: return 10
++    if price < 50000: return 50
++    if price < 200000: return 100
++    if price < 500000: return 500
++    return 1000
++
++def tick_round(price, side):
++    t = tick_of(price)
++    if TICK_MODE == "nearest":
++        return math.floor(price / t + 0.5) * t
++    if side == "buy":
++        return math.ceil(price / t - 1e-9) * t
++    return math.floor(price / t + 1e-9) * t
++
++
+ 
+ @dataclass(frozen=True)
+ class Params:
+@@ -206,7 +245,7 @@
+ 
+     # ---- 체결
+     def _sell(self, f, qty, price, cost_part, kind):
+-        px = price * (1 - self.p.slippage)
++        px = tick_round(price * (1 - self.p.slippage), "sell")
+         gross = qty * px
+         net = gross * (1 - self.p.sell_fee - sell_tax(self.sym, self.day, self.p))
+         if self.sym.kind == "etf_other":
+@@ -316,7 +355,7 @@
+             causes.append("shares_blocked")
+         remaining = target - (0.0 if new else f.cost)
+         amount = min(target * p.portion_pct / 100, remaining)
+-        px = price * (1 + p.slippage)
++        px = tick_round(price * (1 + p.slippage), "buy")
+         want = int(amount // px) if px > 0 else 0
+         if want < 1:
+             causes.append("unaffordable")
+@@ -371,8 +410,12 @@
+         """→ [(f, box, 지정가)]"""
+         pairs = self.sniper_boxes()
+         if self.p.sell_rule == "fixed":
+-            return [(f, b, b.avg * (1 + self.p.fixed_tp / 100)) for f, b in pairs
+-                    if px >= b.avg * (1 + self.p.fixed_tp / 100) - 1e-9]
++            out = []
++            for f, b in pairs:
++                trig = tick_round(b.avg * (1 + self.p.fixed_tp / 100), "sell")
++                if px >= trig - 1e-9:
++                    out.append((f, b, trig))
++            return out
+         self.sync_trail()
+         if not pairs:
+             return []
+@@ -386,14 +429,15 @@
+             floor = self.trail.fire(px)
+         if grad:
+             wma = sum(g.cost for g in grad) / sum(g.qty for g in grad)
+-            target = wma * (1 + self.p.upper_tp / 100)
++            target = tick_round(wma * (1 + self.p.upper_tp / 100), "sell")
+             if px >= target - 1e-9:
+                 return [(f, b, target) for f, b in pairs]
+         out = []
+         if floor is not None:
++            floor = tick_round(floor, "sell")
+             out += [(owner[id(b)], b, floor) for b in gs[0].boxes]
+         if l2 >= 0:
+-            raw = gs[l2].price * (1 + self.p.upper_tp / 100)
++            raw = tick_round(gs[l2].price * (1 + self.p.upper_tp / 100), "sell")
+             if (floor is not None and (raw <= floor + 1e-9 or px >= raw - 1e-9)) or \
+                     (not has_l1 and self.p.l2_solo and px >= raw - 1e-9):
+                 out += [(owner[id(b)], b, raw) for b in gs[l2].boxes]
+@@ -422,7 +466,7 @@
+                     self.st["rest_orders"] += 1
+             if self.tower_n < self.p.tower_per_day:
+                 hit = [f for f in self.fs if f.done and not f.locked and f.id not in self.blocked
+-                       and px >= f.avg * (1 + self.p.tower_tp / 100) - 1e-9]
++                       and px >= tick_round(f.avg * (1 + self.p.tower_tp / 100), "sell") - 1e-9]
+                 if self.p.tower_order == "avg_desc":      # 사용자 결정식. 동점의 -id 는 임시안(확정 규칙 아님)
+                     order = sorted(hit, key=lambda f: (-round(f.avg, 4), -f.id))
+                     self.mark_tie(order, self.p.tower_per_day - self.tower_n)
+@@ -472,21 +516,23 @@
+         if self.p.sell_rule == "code":
+             self.sync_trail()
+             tu, td = self.trail.levels()
++            tu = [tick_round(x, "sell") for x in tu]
++            td = [tick_round(x, "sell") for x in td]
+             lv += tu if up else td
+         if up:
+             lv += [o[0] for o in self.resting]
+             pairs = self.sniper_boxes()
+             if pairs and self.p.sell_rule == "fixed":
+-                lv += [x.avg * (1 + self.p.fixed_tp / 100) for _, x in pairs]
++                lv += [tick_round(x.avg * (1 + self.p.fixed_tp / 100), "sell") for _, x in pairs]
+             elif pairs:
+                 gs, has_l1 = tiers([x for _, x in pairs])
+                 start = 1 if has_l1 else 0
+                 if len(gs) > start:
+-                    lv.append(gs[start].price * (1 + self.p.upper_tp / 100))
++                    lv.append(tick_round(gs[start].price * (1 + self.p.upper_tp / 100), "sell"))
+                 for rest in (gs[start:], gs[start + 1:]):
+                     if rest:
+-                        lv.append(sum(g.cost for g in rest) / sum(g.qty for g in rest) * (1 + self.p.upper_tp / 100))
+-            lv += [f.avg * (1 + self.p.tower_tp / 100) for f in self.fs if f.done and not f.locked]
++                        lv.append(tick_round(sum(g.cost for g in rest) / sum(g.qty for g in rest) * (1 + self.p.upper_tp / 100), "sell"))
++            lv += [tick_round(f.avg * (1 + self.p.tower_tp / 100), "sell") for f in self.fs if f.done and not f.locked]
+             return sorted(x for x in lv if a < x <= b)
+         if can_buy and self.fs:
+             ref = self.buy_ref()
+@@ -599,11 +645,12 @@
+     last_close = bars[-1][6]
+     liq = 0.0
+     for f in s.fs:
+-        gross = f.qty * last_close * (1 - p.slippage)
++        px_liq = tick_round(last_close * (1 - p.slippage), "sell")
++        gross = f.qty * px_liq
+         cost = gross * (p.sell_fee + sell_tax(sym, bars[-1][1], p))
+         if sym.kind == "etf_other":
+             cost += max(0.0, gross - f.cost) * 0.154
+-        liq += cost + f.qty * last_close * p.slippage
++        liq += cost + f.qty * (last_close - px_liq)
+     res = dict(s.st)
+     res.update(curve=curve, start_cash=s.start_cash, liquidation_cost=liq,
+                final=curve[-1][1] - liq, f_over_1y=len(long_held), f_max_age=max_age,
+@@ -664,7 +711,7 @@
+ 
+ def fits_one_share(p, first_price):
+     """시험 시작 시점(첫 봉 시가)에 1회 매수액으로 1주를 살 수 있나"""
+-    return p.share_amount * p.portion_pct / 100 >= first_price * (1 + p.slippage)
++    return p.share_amount * p.portion_pct / 100 >= tick_round(first_price * (1 + p.slippage), "buy")
+ 
+ 
+ def required_share(base, price, min_portion_pct, unit=1_000_000):
