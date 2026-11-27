@@ -1,0 +1,112 @@
+{
+ "period": {
+  "start": "2022-01-03",
+  "end": "2026-11-26"
+ },
+ "source": "yahoo",
+ "symbols": [
+  {
+   "ticker": "229200.KS",
+   "name": "KODEX 코스닥150",
+   "kind": "etf_equity",
+   "price_limit": 0.3
+  },
+  {
+   "ticker": "005930.KS",
+   "name": "삼성전자",
+   "kind": "stock",
+   "price_limit": 0.3
+  },
+  {
+   "ticker": "000660.KS",
+   "name": "SK하이닉스",
+   "kind": "stock",
+   "price_limit": 0.3
+  },
+  {
+   "ticker": "132030.KS",
+   "name": "KODEX 골드선물(H)",
+   "kind": "etf_other",
+   "price_limit": 0.3
+  }
+ ],
+ "segments": [
+  {
+   "name": "2022",
+   "start": "2022-01-01",
+   "end": "2022-12-31",
+   "type": "auto"
+  },
+  {
+   "name": "2023",
+   "start": "2023-01-01",
+   "end": "2023-12-31",
+   "type": "auto"
+  },
+  {
+   "name": "2024",
+   "start": "2024-01-01",
+   "end": "2024-12-31",
+   "type": "auto"
+  },
+  {
+   "name": "2025",
+   "start": "2025-01-01",
+   "end": "2025-12-31",
+   "type": "auto"
+  },
+  {
+   "name": "2026",
+   "start": "2026-01-01",
+   "end": "2026-12-31",
+   "type": "auto"
+  }
+ ],
+ "auto_up_threshold": 0.15,
+ "params": {},
+ "sweep": {
+  "sell_rule": [
+   "code",
+   "fixed"
+  ],
+  "fixed_tp": [
+   1.0,
+   2.0,
+   3.0
+  ],
+  "trail_ignite": [
+   1.0
+  ],
+  "upper_tp": [
+   1.0,
+   2.0
+  ],
+  "l2_solo": [
+   false,
+   true
+  ],
+  "remain": [
+   "sniper",
+   "hold"
+  ],
+  "tower_tp": [
+   5.0,
+   10.0,
+   20.0
+  ],
+  "tower_sell": [
+   30.0,
+   50.0,
+   70.0
+  ],
+  "portion_pct": [
+   8.0,
+   10.0
+  ]
+ },
+ "minute": {
+  "file": "{code}_1m.csv",
+  "since": "2025-11-03",
+  "sessions": {}
+ }
+}
