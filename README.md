@@ -55,7 +55,7 @@
 
 - 네 자체 차트 자료를 쓸 수 있다. 출처·기간·종목 범위를 결과에 같이 적는다.
 - 참고: 키움 분봉(ka10080)은 종목과 관계없이 약 1년만 보관한다(4종목 실측 2025-11-03 이후 263일).
-- 키움 분봉 CSV 4개가 이 저장소에 있다: `data/kiwoom_minute/005930_1m.csv`, `000660_1m.csv`, `229200_1m.csv`, `132030_1m.csv` (2025-11-03~2026-11-26, 1분봉, 각 96,083~111,775행). 수정된 키움 프로브는 `draft/kiwoom_minute_probe_fixed.py`다 (브라우저 User-Agent 수정본, 해시 d8f01e1c...; 초안의 `draft/kiwoom_minute_probe.py`는 수정 전 버전이라 서버에서 HTTP 400으로 막힌다).
+- 키움 분봉 CSV 4개가 이 저장소에 있다: `data/kiwoom_minute/005930_1m.csv`, `000660_1m.csv`, `229200_1m.csv`, `132030_1m.csv` (2025-11-03~2026-11-27, 1분봉, 각 96,083~111,775행). 종목별·월별 분할 52개 파일도 있다: `data/kiwoom_minute/monthly/<종목>_1m_<연도>-<월>.csv` (2025-11~2026-11), 원본 파일명·기간·행 수·해시는 `data/kiwoom_minute/monthly/MANIFEST_SHA256.txt`에 있다. 수정된 키움 프로브는 `draft/kiwoom_minute_probe_fixed.py`다 (브라우저 User-Agent 수정본, 해시 d8f01e1c...; 초안의 `draft/kiwoom_minute_probe.py`는 수정 전 버전이라 서버에서 HTTP 400으로 막힌다).
 - 기본 종목: 삼성전자 005930, SK하이닉스 000660, KODEX 코스닥150 229200, KODEX 골드선물(H) 132030. 종목 목록은 바꿔 돌릴 수 있게 한다.
 
 ## 8. 제약
