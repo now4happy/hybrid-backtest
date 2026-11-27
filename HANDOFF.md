@@ -546,3 +546,11 @@
 - 해석 5개 전부 확정됨: 1) 다음 분·다음 날은 회복 없이도 새 신호다. 2) F 한도가 걸려도 예정 수량이 1주 이상이고 보호선을 넘으면 cash\_protection을 기록하고 고갈 1회로 센다. 3) 같은 창에서 처음 실패가 1주 미달뿐이고 나중에 현금 원인이 생기면 고갈로 세지 않고 late\_depletion 표시·판정 보류로 한다. 4) 기본값 fixed 유지. 5) 동점으로 팔 F가 갈릴 때만 판정 보류로 한다.
 - 수정본 수락: 초안 수정 2차는 검증 통과(84/84 + Muse 독립 실행 확인)와 해석 5개 확정으로 수락한다. 다음은 1\~2단계 통합 검증이다.
 - 다음 단계: Muse가 원본 Python과 수정 엔진을 56번 요청 5가지로 대조한다. 세라핀은 합성 입력·계산 결과·차이 해석을 대조한다. 실데이터 백테스트는 아직 시작하지 않는다.
+
+## 59. 저장소 draft/에 수정 2차 반영 (2026-11-27)
+
+- 내용: 풀이님이 수정본을 저장소에 올리기로 했다. 클로드 ZIP(draftfix2\_v2\_[hybrid-backtest.zip](http://hybrid-backtest.zip))의 draft/를 저장소 draft/에 그대로 올렸다.
+- 커밋: 944be53 "draft fix 2 (Claude): 11 fixes verified 84/84, interpretations 1-5 confirmed". 바뀐 파일 9개: 수정 6개([README.md](http://README.md), config\_default.json, hbt\_[engine.py](http://engine.py), kiwoom\_minute\_[probe.py](http://probe.py), run\_[backtest.py](http://backtest.py), test\_[hbt.py](http://hbt.py)), 삭제 1개(kiwoom\_minute\_probe\_[fixed.py](http://fixed.py)), 추가 2개([VERIFY.md](http://VERIFY.md), test\_hbt\_[fix2.py](http://fix2.py)). \_\_pycache\_\_는 건드리지 않았다.
+- 확인: 올리기 전에 추출본과 저장소 복사본을 diff로 대조했다. [VERIFY.md](http://VERIFY.md) 위치(ZIP 루트에서 draft/로) 외에는 차이가 없다. 시험은 추출본에서 이미 84/84를 직접 실행했고, 저장소 복사본은 바이트가 같아 다시 돌리지 않았다.
+- [VERIFY.md](http://VERIFY.md) 위치: ZIP에서는 루트에 있었고, 저장소에서는 draft/[VERIFY.md](http://VERIFY.md)에 넣었다. 검증 기록이 코드와 함께 있도록 했다.
+- 세라핀이 읽을 수 있게 됐다: 저장소 draft/가 이제 수정 2차 버전이다. 세라핀은 ZIP을 못 받으므로 저장소에서 수정본을 읽는다. 다음 통합 검증은 이 커밋(944be53)을 기준으로 한다.
