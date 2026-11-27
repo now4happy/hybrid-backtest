@@ -1,0 +1,15 @@
+ticker,portion_pct,window_start,window_end,unaffordable_evals,price_min,price_max,engine_state,note
+000660.KS,10.0,2026-05-26,2026-05-29,3487,2009000,2379000,flat (first buy),weekday block; weekends separate the windows
+000660.KS,10.0,2026-06-01,2026-06-02,1725,2270000,2398000,flat (first buy),
+000660.KS,10.0,2026-06-04,2026-06-05,1687,2080000,2327000,flat (first buy),
+000660.KS,10.0,2026-06-08,2026-06-12,3862,2001000,2304000,flat (first buy),
+000660.KS,10.0,2026-06-15,2026-06-19,4465,2266000,2891000,flat (first buy),
+000660.KS,10.0,2026-06-22,2026-06-26,4243,2453000,2963000,flat (first buy),
+000660.KS,10.0,2026-06-29,2026-07-03,4481,2045000,2742000,flat (first buy),
+000660.KS,10.0,2026-07-06,2026-07-10,4203,2090000,2497000,flat (first buy),
+000660.KS,10.0,2026-07-13,2026-07-13,136,2001000,2122000,flat (first buy),
+000660.KS,10.0,2026-05-26,2026-07-13,28289,2001000,2963000,flat (first buy) — all 28289,total of the 9 windows; 0 while an F was open
+000660.KS,12.0,2026-05-26,2026-07-13,0,2400000,2987000,counterfactual — no buy attempt,see note,minutes in window with close>2.4M: 4328 (15 days); close>2.0M: 12349; full-period close>2.4M is also 4328 (all inside this window); max close 2986000 / max high 2987000
+000660.KS,12.0,2026-04-02,2026-04-02,0,,,last buy attempt before the window,state at that attempt: F1 complete 20 shares @974887 + F2 open 2 shares @863743; zero buy attempts from 2026-04-03 to end of run (107 attempts total, all before 2026-04-03)
+000660.KS,15.0,2026-05-26,2026-07-13,0,3000000,2987000,coverage only,1-share buy amount 3.0M vs observed max high 2987000: margin 13000 (0.44%)
+000660.KS,20.0,2026-05-26,2026-07-13,0,4000000,2987000,coverage only,1-share buy amount 4.0M vs observed max high 2987000: margin 1013000 (33.9%)
