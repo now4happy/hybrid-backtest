@@ -1,0 +1,6 @@
+day,minute,price,note
+2026-06-08,575,1965000,succeeded at first evaluation; no failure row this minute
+2026-06-08,667,2000000,"open failed (failure row at 2001000), bought at bar low 2000000"
+2026-06-08,800,2000000,"open failed, bought at bar low 2000000"
+2026-06-10,863,2000000,"open failed, bought at bar low 2000000"
+2026-07-13,609,1999000,"open failed (low 1999000), bought at bar low"

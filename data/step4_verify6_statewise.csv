@@ -1,0 +1,5 @@
+portion_pct,amount_per_buy,ret,liq_ret,flat_minutes,first_buy_attempts_flat,first_buy_successes_flat,first_buy_successes_flat_in_window_20260526_0713,add_buy_attempts_open,add_buy_successes_open,unaffordable_failure_evals_flat,unaffordable_counter,cond_unbuyable_minutes_low,cond_unbuyable_minutes_flat,cond_unbuyable_minutes_flat_eligible,depletion,no_cash,shares_blocked,late_depletion,tower_ties,synthetic_reopen_window_failures,synthetic_reopen_counter,synthetic_reopen_depletion,synthetic_reopen_shares_blocked
+10.0,2000000,0.1321950232274065,0.13185543072740646,12391,28329,40,5,188,188,28289,7882,12700,12180,7875,0,0,0,0,0,not run,not run,not run,not run
+12.0,2400000,0.1358450883912916,0.13546776339129152,94,20,20,0,87,87,0,0,4292,0,0,0,0,0,0,0,8983,2477,0,0
+15.0,3000000,0.1786214539109663,0.17798000141096604,16,3,3,0,26,26,0,0,0,0,0,0,0,0,0,0,0,0,0,71
+20.0,4000000,0.179876498251605,0.17927277825160481,16,3,3,0,25,25,0,0,0,0,0,0,0,0,0,0,not run,not run,not run,not run
